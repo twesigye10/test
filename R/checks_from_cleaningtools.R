@@ -195,14 +195,28 @@ list_log <- df_tool_data_with_audit_time %>%
   #                       log_name = "soft_duplicate_log",
   #                       threshold = 7,
   #                       return_all_results = FALSE) %>%
-  check_value(uuid_column = "_uuid", values_to_look = c(666, 99, 999, 9999, 98, 88, 888, 8888)) %>%
-  check_others(uuid_column = "_uuid",
-    columns_to_check = names(df_tool_data %>%dplyr::select(ends_with("_other")) %>% dplyr::select(-contains("/")))
-  ) %>% 
-  create_combined_log()
+  check_value(uuid_column = "_uuid", values_to_look = c(666, 99, 999, 9999, 98, 88, 888, 8888)) # %>%
+  # check_others(uuid_column = "_uuid",
+  #   columns_to_check = names(df_tool_data %>%dplyr::select(ends_with("_other")) %>% dplyr::select(-contains("/")))
+  # ) %>% 
+  # create_combined_log()
+
+list_log$duration_log %>% view()
+
+# other checks
+df_other_checks <- cts_format_other_specify(input_tool_data = df_tool_data, 
+                                                    input_uuid_col = "_uuid", 
+                                                    input_survey = df_survey, 
+                                                    input_choices = df_choices)
+
+# add other checks to the list
+list_log$other_log <- df_other_checks
+
+# combine the log
+df_combined_log <- create_combined_log(dataset_name = "checked_dataset", list_of_log = list_log)
 
 # add_info_to_cleaning_log()
-add_with_info <- add_info_to_cleaning_log(list_of_log = list_log,
+add_with_info <- add_info_to_cleaning_log(list_of_log = df_combined_log,
                                           dataset = "checked_dataset",
                                           cleaning_log = "cleaning_log",
                                           dataset_uuid_column = "_uuid",
@@ -224,39 +238,6 @@ add_with_info |>
   )
 
 
-# create a clean data -----------------------------------------------------
-
-df_filled_cl <- readxl::read_excel("outputs/review_mycleaninglog.xlsx", sheet = "cleaning_log")
-
-# check the cleaning log
-df_cl_review <- cleaningtools::review_cleaning_log(
-  raw_dataset = df_tool_data,
-  raw_data_uuid_column = "_uuid",
-  cleaning_log = df_filled_cl,
-  cleaning_log_change_type_column = "change_type",
-  change_response_value = "change_response",
-  cleaning_log_question_column = "question",
-  cleaning_log_uuid_column = "uuid",
-  cleaning_log_new_value_column = "new_value"
-)
-
-# create the clean data from the raw data and cleaning log
-df_cleaning_data <- cleaningtools::create_clean_data(
-  raw_dataset = df_tool_data,
-  raw_data_uuid_column = "_uuid",
-  cleaning_log = df_filled_cl %>% filter(!question %in% c("duration_audit_sum_all_ms", "duration_audit_sum_all_minutes"), !uuid %in% c("all")),
-  cleaning_log_change_type_column = "change_type",
-  change_response_value = "change_response",
-  NA_response_value = "blank_response",
-  no_change_value = "no_action",
-  remove_survey_value = "remove_survey",
-  cleaning_log_question_column = "question",
-  cleaning_log_uuid_column = "uuid",
-  cleaning_log_new_value_column = "new_value"
-)
-
-openxlsx::write.xlsx(df_cleaning_data, paste0("outputs/", butteR::date_file_prefix(), 
-                            "_cleaning_data_sample.xlsx"))
 
 # recreate_parent_column()
 cleaningtools::recreate_parent_column(dataset = test_data, uuid_column = "uuid", sm_separator = ".") |> head()
