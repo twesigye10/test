@@ -3,12 +3,14 @@ library(glue)
 library(cleaningtools)
 library(httr)
 library(supporteR)
+library(openxlsx)
 
 source("R/support_functions.R")
 source("support_files/credentials.R")
 
 # global options can be set to further simplify things
 options("openxlsx.dateFormat" = "dd/mm/yyyy")
+options("openxlsx.borderStyle" = "thin")
 
 
 # some needed explanation -------------------------------------------------
@@ -214,39 +216,114 @@ df_other_checks <- cts_format_other_specify(input_tool_data = df_tool_data,
 list_log$other_log <- df_other_checks
 
 # combine the log
-df_combined_log <- create_combined_log(dataset_name = "checked_dataset", list_of_log = list_log)
+# df_combined_log <- create_combined_log(dataset_name = "checked_dataset", list_of_log = list_log)
+df_combined_log <- create_combined_log_keep_change_type(dataset_name = "checked_dataset", list_of_log = list_log)
 
-# add_info_to_cleaning_log()
-add_with_info <- add_info_to_cleaning_log(list_of_log = df_combined_log,
-                                          dataset = "checked_dataset",
-                                          cleaning_log = "cleaning_log",
-                                          dataset_uuid_column = "_uuid",
-                                          cleaning_log_uuid_column = "uuid",
-                                          information_to_add = c("meta_enumerator_id", "today")
+df_combined_log$cleaning_log %>% view()
+
+cols_to_add_to_log <- c("meta_enumerator_id", "today")
+
+tool_support <- df_combined_log$checked_dataset %>% 
+  # mutate(today = as_date(today)) %>% 
+  select(uuid = `_uuid`, any_of(cols_to_add_to_log))
+combined_log_output <- list()
+combined_log_output$checked_dataset <- df_combined_log$checked_dataset
+combined_log_output$cleaning_log <- df_combined_log$cleaning_log %>%
+  left_join(tool_support, by = "uuid") %>% 
+  relocate(any_of(cols_to_add_to_log), .after = uuid)
+
+openxlsx::write.xlsx(combined_log_output, paste0("outputs/", butteR::date_file_prefix(), 
+                            "_combined_checks_testing.xlsx"))
+
+# # add_info_to_cleaning_log()
+# add_with_info <- add_info_to_cleaning_log(list_of_log = df_combined_log,
+#                                           dataset = "checked_dataset",
+#                                           cleaning_log = "cleaning_log",
+#                                           dataset_uuid_column = "_uuid",
+#                                           cleaning_log_uuid_column = "uuid",
+#                                           information_to_add = c("meta_enumerator_id", "today")
+# )
+# 
+# add_with_info$cleaning_log %>% 
+#   head() %>% 
+#   view()
+# 
+# # modifications
+# 
+# # create_xlsx_cleaning_log()
+# add_with_info |>
+#   create_xlsx_cleaning_log(
+#     kobo_survey = df_survey,
+#     kobo_choices = df_choices,
+#     use_dropdown = TRUE,
+#     output_path = "outputs/mycleaninglog3.xlsx"
+#   )
+
+
+# 
+# # recreate_parent_column()
+# cleaningtools::recreate_parent_column(dataset = test_data, uuid_column = "uuid", sm_separator = ".") |> head()
+# 
+# df_updated_sosm_log <- cleaningtools::recreate_parent_column(dataset = df_tool_data, 
+#                                       uuid_column = "_uuid", 
+#                                       kobo_survey = df_survey, 
+#                                       kobo_choices = df_choices, 
+#                                       sm_separator = "/", 
+#                                       cleaning_log_to_append = df_filled_cl %>% filter(!question %in% c("duration_audit_sum_all_ms", "duration_audit_sum_all_minutes"), !uuid %in% c("all"))
+#                                       )
+
+# create workbook ---------------------------------------------------------
+# prep data
+df_prep_checked_data <- combined_log_output$checked_dataset
+df_prep_cleaning_log <- combined_log_output$cleaning_log
+df_prep_readme <- tibble::tribble(
+  ~change_type_validation,                       ~description,
+  "change_response", "Change the response to new_value",
+  "blank_response",       "Remove and NA the response",
+  "remove_survey",                "Delete the survey",
+  "no_action",               "No action to take."
 )
 
-add_with_info$cleaning_log %>% 
-  head() %>% 
-  view()
 
-# create_xlsx_cleaning_log()
-add_with_info |>
-  create_xlsx_cleaning_log(
-    kobo_survey = df_survey,
-    kobo_choices = df_choices,
-    use_dropdown = TRUE,
-    output_path = "outputs/mycleaninglog.xlsx"
-  )
+wb_log <- createWorkbook()
+
+hs1 <- createStyle(fgFill = "#E34443", textDecoration = "Bold", fontName = "Arial Narrow", fontColour = "white", fontSize = 12, wrapText = F)
+
+modifyBaseFont(wb = wb_log, fontSize = 11, fontName = "Arial Narrow")
+
+addWorksheet(wb_log, sheetName="checked_dataset")
+setColWidths(wb = wb_log, sheet = "checked_dataset", cols = 1:ncol(df_prep_checked_data), widths = 24.89)
+writeDataTable(wb = wb_log, sheet = "checked_dataset", 
+          x = df_prep_checked_data , 
+          startRow = 1, startCol = 1, 
+          tableStyle = "TableStyleLight9",
+          headerStyle = hs1)
+# freeze pane
+freezePane(wb = wb_log, "checked_dataset", firstActiveRow = 2, firstActiveCol = 2)
 
 
+addWorksheet(wb_log, sheetName="cleaning_log")
+setColWidths(wb = wb_log, sheet = "cleaning_log", cols = 1:ncol(df_prep_cleaning_log), widths = 24.89)
+writeDataTable(wb = wb_log, sheet = "cleaning_log", 
+          x = df_prep_cleaning_log , 
+          startRow = 1, startCol = 1, 
+          tableStyle = "TableStyleLight9",
+          headerStyle = hs1)
+# freeze pane
+freezePane(wb = wb_log, "cleaning_log", firstActiveRow = 2, firstActiveCol = 2)
 
-# recreate_parent_column()
-cleaningtools::recreate_parent_column(dataset = test_data, uuid_column = "uuid", sm_separator = ".") |> head()
+addWorksheet(wb_log, sheetName="readme")
+setColWidths(wb = wb_log, sheet = "readme", cols = 1:ncol(df_prep_readme), widths = 24.89)
+writeDataTable(wb = wb_log, sheet = "readme", 
+               x = df_prep_readme , 
+               startRow = 1, startCol = 1, 
+               tableStyle = "TableStyleLight9",
+               headerStyle = hs1)
+# freeze pane
+freezePane(wb = wb_log, "readme", firstActiveRow = 2, firstActiveCol = 2)
 
-df_updated_sosm_log <- cleaningtools::recreate_parent_column(dataset = df_tool_data, 
-                                      uuid_column = "_uuid", 
-                                      kobo_survey = df_survey, 
-                                      kobo_choices = df_choices, 
-                                      sm_separator = "/", 
-                                      cleaning_log_to_append = df_filled_cl %>% filter(!question %in% c("duration_audit_sum_all_ms", "duration_audit_sum_all_minutes"), !uuid %in% c("all"))
-                                      )
+openXL(wb_log)
+
+# saveWorkbook(wb_log, paste0("outputs/", butteR::date_file_prefix(),"_combined_checks_testing_kap.xlsx"), overwrite = TRUE)
+# openXL(file = paste0("outputs/", butteR::date_file_prefix(),"_combined_checks_testing_kap.xlsx"))
+
